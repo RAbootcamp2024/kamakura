@@ -1,6 +1,5 @@
 #install.packages("tidyverse")
 #install.packages("haven")
-install.packages("dpylr")
 library(tidyverse)
 library(haven)
 
@@ -10,16 +9,13 @@ df3 <-read_dta("reprecation_data/Albouy(2016) replication package/match_puma2000
 df4 <-read_dta("reprecation_data/Albouy(2016) replication package/stcmsa2000_wacw_albouy.dta")#
 
 
-data44<-subset(df2, statefip==44)
-data44_year<-subset(data44, age>=25&age<=55)
+data44_year<-subset(df2, age>=25&age<=55)
 data44_year<- mutate(data44_year, immig_dummy=if_else(yrimmig!=0,1,0))
 data44_year<- mutate(data44_year, eng_no=if_else(speakeng==1,1,0))
 data44_year<- mutate(data44_year, eng_bad=if_else(speakeng==5,1,0))
 data44_year<- mutate(data44_year, eng_good=if_else(speakeng==6,1,0))
 
-max(data44_year$ind1950)
 data44_year$ind1950<-round(data44_year$ind1950/100,digits = 0)
-view(data44_year)
 data44_year$occ1950<-round(data44_year$occ1950/100,digits = 0)
 data44_year<- mutate(data44_year, vetage = if_else(vetstat == 2, age, 0))
 
@@ -45,11 +41,15 @@ data44_year<-data44_year%>%
   filter(wkswork1 >=26 & wkswork1<=52)
 
 data44_year<-data44_year%>%
-  mutate(lhrwage = log(incwage/(wkswork1*uhrswork))) %>% 
+  
+  mutate(lhrwage = log(incwage/(wkswork1*uhrswork))) %>%
+  group_by(statefip)%>%
   mutate(stmaxwage = max(incwage)/2000) %>% 
 #極端な値を消す
   filter(lhrwage >= log(2)) %>% 
-  filter(lhrwage <= log(2*max(incwage))) %>%
+  filter(lhrwage <= log(2*max(incwage)))
+#教育に関するダミー変数を追加
+data44_year<-data44_year %>% 
   mutate(schyrs =　case_when(
     educ == 0 ~ 0,
     educ== 1 ~ 2.5,
@@ -62,9 +62,20 @@ data44_year<-data44_year%>%
     educ >= 8 & educ <= 9~ 14,
     educ == 10 ~ 16,
     educ == 11 ~ 18
-  )) 
+  ))  %>% 
   mutate(potexp = age - schyrs -5)
  #215行目から 
 
+df0<-inner_join(data44_year,df3,by=c("statefip","puma"))
 
+data_joined <- df0 %>% 
+  mutate(afact = pop/pumapop) %>% 
+  mutate(oldperwt = perwt) %>% 
+  mutate(perwt = perwt*afact) %>% 
+  filter(afact != 0) %>% 
+  mutate(female = if_else(sex == 2, 1, 0))
 
+library(plm)
+fixed <- plm(lhrwage ~ female, data=data_joined, index=c("cmsa"), model="within", weights = perwt)
+summary(fixed)
+fixed_effects<-fixef(fixed)
